@@ -3,113 +3,23 @@ package associate
 import (
 	"fmt"
 	"math/rand"
+	"sort"
+	"studytools/util/id"
 )
 
-// var GlobaAssociateMap = make(AssociateMap)
+// TODO: use wordnet.com query about word info
 const (
 	Similarity = "similarity "
 	Cluster    = "cluster"
 	Synonym    = "synonym"
 	Antonym    = "antonym"
+	Noun       = "noun"
+	Verb       = "verb"
+	Adjective  = "adjective"
+	Adverb     = "adverb"
 )
 
-type All struct {
-	Item  []*WordSet
-	Words []*WordEntity
-}
-
-func NewAll(w ...*WordEntity) *All {
-	a := &All{
-		Item: make([]*WordSet, 8),
-	}
-	for _, v := range w {
-
-		a.Words = append(a.Words, v)
-		fmt.Println(v)
-		// fmt.Println(a.Words)
-	}
-	return a
-}
-func (a *All) Make() {
-	for _, v := range a.Words {
-		ri := rand.Intn(3)
-		if a.Item[ri] == nil {
-			a.Item[ri] = NewAssociateEntity(randAssosicate())
-		}
-		a.Item[ri].AddWord(v)
-	}
-	for i := 0; i < 200; i++ {
-		rn := rand.Intn(20)
-		ca := NewAssociateEntity(randAssosicate())
-		for i := 0; i < rn; i++ {
-			r2 := rand.Intn(120)
-			ca.AddWord(a.Words[r2])
-		}
-
-		a.Item = append(a.Item, ca)
-
-	}
-}
-
-type WordSet struct {
-	name    string
-	Root    *WordEntity
-	Include map[string]*WordEntity
-}
-
-func (a *WordSet) init() {
-	degreeCache := 0
-	lenCache := 99
-	var lenWordCache, degreeWordCache *WordEntity
-
-	for _, fv := range a.Include {
-		if fv.degree > degreeCache {
-			degreeCache = fv.degree
-			degreeWordCache = fv
-		}
-		if len(fv.name) < lenCache {
-			lenCache = len(fv.name)
-			lenWordCache = fv
-		}
-	}
-	if degreeCache > 0 {
-		a.Root = degreeWordCache
-	} else {
-		a.Root = lenWordCache
-	}
-}
-
-//	func (a *Associate) Addwords(word []WordEntity) {
-//		a.Include = append(a.Include, word...)
-//		a.init()
-//	}
-func (a *WordSet) AddWord(word *WordEntity) {
-	// if _, ok := word.Associates[a.name]; !ok {
-	// 	word.Associates[a.name] = a
-	// }
-	// a.Include = append(a.Include, word)
-	if w, ok := a.Include[word.name]; !ok {
-		a.Include[word.name] = word
-	} else {
-		w.Better(word)
-	}
-	word.Associates[a.name] = a
-
-	if a.Root == nil {
-		a.Root = word
-		return
-	}
-	if word.degree > a.Root.degree {
-		a.Root = word
-		return
-	}
-	if word.degree == a.Root.degree && len(word.name) < len(a.Root.name) {
-		a.Root = word
-	}
-
-}
-
-func randAssosicate() string {
+func randRelationship() string {
 	r := rand.Intn(4)
 	switch r {
 	case 0:
@@ -125,70 +35,356 @@ func randAssosicate() string {
 
 	}
 }
-func NewAssociateEntity(associate string) *WordSet {
+func getProperties() []string {
+	return []string{
+		Noun,
+		Verb,
+		Adjective,
+		Adverb,
+	}
+
+}
+func getRelationship() []string {
+	return []string{
+		Similarity,
+		Cluster,
+		Synonym,
+		Antonym,
+	}
+
+}
+func mergeWordSet(a, b []*WordSet) []*WordSet {
+
+	dup := map[string]struct{}{}
+	for _, v := range a {
+		dup[v.ID] = struct{}{}
+	}
+	for _, v := range b {
+		if _, ok := dup[v.ID]; !ok {
+			a = append(a, v)
+		}
+	}
+	if a == nil {
+		fmt.Println("breaken")
+
+	}
+	return a
+}
+func mergeSlice(a, b []string) []string {
+	dup := map[string]struct{}{}
+	for _, v := range a {
+		dup[v] = struct{}{}
+	}
+	for _, v := range b {
+		if _, ok := dup[v]; !ok {
+			a = append(a, v)
+		}
+	}
+	return a
+}
+func intersectionSlice(a, b []string) []string {
+
+	dup := map[string]struct{}{}
+	intersection := []string{}
+
+	for _, v := range a {
+		dup[v] = struct{}{}
+	}
+	for _, v := range b {
+		if _, ok := dup[v]; ok {
+			intersection = append(intersection, v)
+		}
+	}
+	return intersection
+}
+func Contain(a []string, b string) bool {
+	for _, v := range a {
+		if v == b {
+			return true
+		}
+	}
+	return false
+}
+
+type Domain struct {
+	WordSets []*WordSet
+	Words    []*WordEntity
+}
+
+func NewDomain(w ...*WordEntity) *Domain {
+	if len(w) == 0 {
+		return nil
+	}
+	a := &Domain{
+		WordSets: make([]*WordSet, 8),
+	}
+	a.Words = append(a.Words, w...)
+	return a
+}
+
+// func (d *Domain) Check() {
+// 	for _, v := range d.Words {
+// 		if _, ok := v.superSet["noun"]; ok {
+// 			fmt.Println("dcheck")
+// 			fmt.Println(v.getName())
+// 			return
+// 		}
+// 	}
+
+// }
+func (d *Domain) AddWordSet(is *WordSet) {
+	if is == nil {
+		return
+	}
+	for _, s := range d.WordSets {
+		if s.GetName() == is.GetName() {
+			inames := intersectionSlice(s.GetIncludeName(), is.GetIncludeName())
+			if len(inames) != 0 {
+				for _, v := range is.GetIncludeName() {
+					if Contain(inames, v) {
+						continue
+					}
+					s.Include(is.GetWordByName(v))
+				}
+				return
+			}
+		}
+	}
+	d.WordSets = append(d.WordSets, is)
+}
+func (d *Domain) Make() {
+	for _, v := range d.Words {
+		ri := rand.Intn(8)
+		if d.WordSets[ri] == nil {
+			d.WordSets[ri] = NewWordSet(randRelationship())
+		}
+		d.WordSets[ri].Include(v)
+	}
+	for i := 0; i < 200; i++ {
+		rn := rand.Intn(20)
+		wordSet := NewWordSet(randRelationship())
+		for i := 0; i < rn; i++ {
+			r2 := rand.Intn(len(d.Words) - 1)
+			wordSet.Include(d.Words[r2])
+		}
+
+		d.AddWordSet(wordSet)
+	}
+}
+
+type WordSet struct {
+	ID          string
+	name        string
+	Root        *WordEntity
+	IncludeWord []*WordEntity
+}
+
+func NewWordSet(relationship string) *WordSet {
 	return &WordSet{
-		name:    associate,
-		Include: make(map[string]*WordEntity),
+		ID:          id.UUID(),
+		name:        relationship,
+		IncludeWord: make([]*WordEntity, 0),
+	}
+}
+
+func (s *WordSet) Check() {
+	if s.name == "noun" {
+		fmt.Println("scheck")
+		return
+
+	}
+}
+func (s *WordSet) GetName() string {
+	return s.name
+}
+func (s *WordSet) GetWordByName(name string) *WordEntity {
+
+	for _, v := range s.GetIncludeWord() {
+		if v.getName() == name {
+			return v
+		}
+
+	}
+	return nil
+}
+func (s *WordSet) GetIncludeWord() []*WordEntity {
+	return s.IncludeWord
+}
+func (s *WordSet) GetIncludeName() []string {
+
+	names := []string{}
+	for _, w := range s.IncludeWord {
+		names = append(names, w.getName())
+	}
+	return names
+}
+func (s *WordSet) Include(iw *WordEntity) {
+	for _, v := range s.GetIncludeWord() {
+		if v.name == iw.name {
+			v.Merge(iw)
+			return
+		}
+	}
+	//关系互联
+
+	s.IncludeWord = append(s.IncludeWord, iw)
+
+	iw.Attached(s)
+
+	//集合根设定
+	if s.Root == nil {
+		s.Root = iw
+		return
+	}
+	if iw.degree > s.Root.degree {
+		s.Root = iw
+		return
+	}
+	if iw.degree == s.Root.degree && len(iw.getName()) < len(s.Root.getName()) {
+		s.Root = iw
 	}
 }
 
 type WordEntity struct {
-	Associates map[string]*WordSet
-	etyma      map[string]*Etymology
-	meaning    map[string]struct{}
-	name       string
-	degree     int
+	superSet map[string][]*WordSet
+	name     string
+	meaning  map[string][]string
+	etyma    []*etyma
+	degree   int
 }
 
-func NewWordEntities(word ...string) []*WordEntity {
-	if word == nil {
+func NewWords(cups map[string]int) []*WordEntity {
+	if cups == nil {
 		return nil
 	}
-	if len(word) == 1 {
-		return []*WordEntity{
-			{
-				Associates: make(map[string]*WordSet, 4),
-				name:       word[0],
-				degree:     0,
-				etyma:      make(map[string]*Etymology, 4),
-			},
+	words := []*WordEntity{}
+	for k, v := range cups {
+		words = append(words, NewWord(k, v))
+	}
+
+	return words
+}
+func NewWord(name string, degree int) *WordEntity {
+	return &WordEntity{
+		superSet: make(map[string][]*WordSet),
+		name:     name,
+		meaning:  make(map[string][]string),
+		etyma:    []*etyma{},
+		degree:   degree,
+	}
+}
+func (w *WordEntity) GetSuperSet(name string) ([]*WordSet, bool) {
+	if v, ok := w.superSet[name]; ok {
+		return v, true
+	}
+	return nil, false
+}
+func (w *WordEntity) SetSuperSet(name string, s []*WordSet) {
+	if s == nil {
+		return
+	}
+
+	w.superSet[name] = s
+}
+
+func (w *WordEntity) equal(iw *WordEntity) bool {
+	if w == iw {
+		return true
+	}
+	if w.name != iw.name || len(w.getMeanings()) != len(iw.getMeanings()) {
+		return false
+	}
+	// 含义比较
+
+	for _, icontent := range iw.getMeanings() {
+		for _, content := range w.getMeanings() {
+			if icontent != content {
+				return false
+			}
 		}
 	}
-	ws := make([]*WordEntity, 0)
-	for _, fv := range word {
-		ws = append(ws, &WordEntity{
-			Associates: make(map[string]*WordSet, 4),
-			name:       fv,
-			degree:     0,
-			etyma:      make(map[string]*Etymology, 4),
-		})
+
+	//关联相等
+	// w.relationship = iw.relationship
+
+	// TODO: "github.com/d4l3k/messagediff
+	return true
+}
+func (w *WordEntity) getName() string {
+	return w.name
+}
+func (w *WordEntity) getMeanings() []string {
+	if w.meaning == nil {
+		return nil
 	}
-	return ws
+	meanings := []string{}
+	for _, v := range w.meaning {
+		meanings = append(meanings, v...)
+	}
+	sort.Strings(meanings)
+
+	return meanings
+}
+
+func (w *WordEntity) SetMeaningByProperty(p string, contents []string) {
+	w.meaning[p] = contents
+}
+func (w *WordEntity) GetMeaningByProperty(p string) []string {
+	if v, ok := w.meaning[p]; ok {
+		return v
+	}
+	return nil
+}
+func (w *WordEntity) Attached(s *WordSet) {
+	if s.name == "noun" {
+		fmt.Println("breaken")
+	}
+	if v, ok := w.GetSuperSet(s.name); ok {
+		if v != nil {
+			for _, fv := range v {
+				if fv.name == s.name {
+					return
+				}
+			}
+			v = append(v, s)
+		} else {
+			v = []*WordSet{s}
+		}
+	} else {
+		w.SetSuperSet(s.name, []*WordSet{s})
+	}
 }
 func (w *WordEntity) SetDegree(degree int) {
 	w.degree = degree
 }
+func (w *WordEntity) Check() {
+	if v, ok := w.GetSuperSet("noun"); ok {
+		fmt.Println("wcheck", v)
+
+	}
+}
 func (w *WordEntity) AddDegree() {
 	w.degree++
 }
-func (w *WordEntity) Better(iw *WordEntity) {
-	if w.degree < iw.degree {
+func (w *WordEntity) Merge(iw *WordEntity) {
+	if iw.degree > w.degree {
 		w.degree = iw.degree
 	}
-	for m := range iw.meaning {
-		if _, ok := w.meaning[m]; !ok {
-			w.meaning[m] = struct{}{}
-		}
+	//合并含义
+	for _, p := range getProperties() {
+		w.SetMeaningByProperty(p, mergeSlice(w.GetMeaningByProperty(p), iw.GetMeaningByProperty(p)))
 	}
-	for k, fv := range iw.etyma {
-		if _, ok := w.etyma[k]; !ok {
-			w.etyma[k] = fv
+	//合并上层集合
+	for _, r := range getRelationship() {
+		w1, ok1 := w.GetSuperSet(r)
+		w2, ok2 := iw.GetSuperSet(r)
+		if ok1 || ok2 {
+			w.SetSuperSet(r, mergeWordSet(w1, w2))
 		}
 	}
 }
 
-type Etymology struct {
-	Word    map[string]*WordEntity
-	formate []string
-	meaning []string
+type etyma struct {
+	name    string
+	meaning string
 }
