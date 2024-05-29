@@ -2,4 +2,3 @@
 log*json
 *.json
 *debug*
-*.html
